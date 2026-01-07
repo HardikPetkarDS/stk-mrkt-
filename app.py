@@ -6,8 +6,9 @@ from collections import defaultdict, deque
 
 st.set_page_config(page_title="Advanced Stock Market Simulator", layout="wide")
 
-# 🔄 auto refresh every second
-st.autorefresh(interval=1000, key="refresh")
+placeholder = st.empty()
+time.sleep(1)
+
 
 
 
