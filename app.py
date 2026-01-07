@@ -4,7 +4,7 @@ import time
 import pandas as pd
 from collections import defaultdict, deque
 
-st.set_page_config(page_title="Advanced Stock Market Simulator", layout="wide")
+st.set_page_config(page_title="Stock Market Simulator", layout="wide")
 
 # ------------------ SESSION STATE ------------------
 if "balance" not in st.session_state:
