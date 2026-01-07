@@ -7,10 +7,9 @@ from collections import defaultdict, deque
 st.set_page_config(page_title="Advanced Stock Market Simulator", layout="wide")
 
 # 🔄 auto refresh every second
-st_autorefresh = st.experimental_memo(lambda: None)
-st.experimental_rerun
-st_autorefresh
-st_autorefresh = st.autorefresh(interval=1000, key="refresh")
+st.autorefresh(interval=1000, key="refresh")
+
+
 
 # ------------------ SESSION STATE ------------------
 if "balance" not in st.session_state:
