@@ -1,113 +1,150 @@
 import streamlit as st
 import random
 import time
+import pandas as pd
+from collections import defaultdict, deque
 
-st.set_page_config(page_title="Stock Market Prototype", layout="wide")
+st.set_page_config(page_title="Advanced Stock Market Simulator", layout="wide")
 
-# ------------ INITIALIZE SESSION STATE ------------
+# ------------------ SESSION STATE ------------------
 if "balance" not in st.session_state:
-    st.session_state.balance = 100000   # virtual money
+    st.session_state.balance = 100000
+
 if "portfolio" not in st.session_state:
-    st.session_state.portfolio = {}     # stock -> qty
+    st.session_state.portfolio = defaultdict(int)
+
 if "prices" not in st.session_state:
-    st.session_state.prices = {
-        "RELIANCE": 2500,
-        "TCS": 3600,
-        "HDFC": 1600,
-        "INFY": 1500,
+    st.session_state.prices = {"RELIANCE": 2500, "TCS": 3600, "HDFC": 1600, "INFY": 1500}
+
+if "order_book" not in st.session_state:
+    st.session_state.order_book = {
+        s: {"buy": deque(), "sell": deque()} for s in st.session_state.prices
     }
-if "history" not in st.session_state:
-    st.session_state.history = []
+
+if "trades" not in st.session_state:
+    st.session_state.trades = []
+
+if "price_history" not in st.session_state:
+    st.session_state.price_history = {s: [] for s in st.session_state.prices}
+
 if "last_update" not in st.session_state:
     st.session_state.last_update = time.time()
 
-
-# ------------ PRICE ENGINE (SIMULATED MARKET) ------------
+# ------------------ PRICE ENGINE ------------------
 def update_prices():
-    for stock in st.session_state.prices:
-        change = random.uniform(-5, 5)
-        st.session_state.prices[stock] = max(
-            1, round(st.session_state.prices[stock] + change, 2)
+    for s in st.session_state.prices:
+        change = random.uniform(-3, 3)
+        st.session_state.prices[s] = max(
+            1, round(st.session_state.prices[s] + change, 2)
         )
-
+        st.session_state.price_history[s].append(st.session_state.prices[s])
 
 # auto update every second
 if time.time() - st.session_state.last_update >= 1:
     update_prices()
     st.session_state.last_update = time.time()
 
+# ------------------ MATCHING ENGINE ------------------
+def match_orders(symbol):
+    book = st.session_state.order_book[symbol]
+    
+    while book["buy"] and book["sell"]:
+        buy = book["buy"][0]
+        sell = book["sell"][0]
 
-# ------------ LAYOUT ------------
-st.title("📈 Stock Market Prototype (Live Simulation)")
+        if buy["price"] >= sell["price"]:
+            trade_price = sell["price"]
+            qty = min(buy["qty"], sell["qty"])
 
-col1, col2 = st.columns(2)
+            # update quantities
+            buy["qty"] -= qty
+            sell["qty"] -= qty
 
-# ------------ MARKET DASHBOARD ------------
-with col1:
-    st.subheader("Live Market Prices")
-    for stock, price in st.session_state.prices.items():
-        st.metric(stock, f"₹{price}")
+            # portfolio adjustments
+            st.session_state.portfolio[buy["user"]] += qty
+            st.session_state.portfolio[sell["user"]] -= qty
 
-# ------------ PORTFOLIO ------------
-with col2:
-    st.subheader("Your Portfolio")
-    st.write(f"💰 Balance: **₹{round(st.session_state.balance,2)}**")
+            # balance adjustments
+            st.session_state.balance -= qty * trade_price
+            st.session_state.balance += qty * trade_price
 
-    if st.session_state.portfolio:
-        for stock, qty in st.session_state.portfolio.items():
-            price = st.session_state.prices[stock]
-            st.write(f"{stock}: {qty} shares  (₹{round(qty * price,2)})")
-    else:
-        st.write("No stocks yet.")
+            st.session_state.trades.append(
+                {"symbol": symbol, "price": trade_price, "qty": qty}
+            )
 
+            if buy["qty"] == 0:
+                book["buy"].popleft()
+            if sell["qty"] == 0:
+                book["sell"].popleft()
+        else:
+            break
+
+# ------------------ UI ------------------
+st.title("📈 Advanced Stock Market Prototype")
+
+left, right = st.columns([2, 2])
+
+# MARKET PANEL
+with left:
+    st.subheader("Live Market")
+    for s, p in st.session_state.prices.items():
+        st.metric(s, f"₹{p}")
+
+    st.subheader("Price Chart")
+    symbol = st.selectbox("Select stock", list(st.session_state.prices.keys()))
+    if st.session_state.price_history[symbol]:
+        st.line_chart(st.session_state.price_history[symbol])
+
+# TRADING PANEL
+with right:
+    st.subheader("Trade")
+
+    stock = st.selectbox("Stock", list(st.session_state.prices.keys()), key="trade_stock")
+    order_kind = st.radio("Order Type", ["Market", "Limit"])
+    side = st.radio("Side", ["Buy", "Sell"])
+    qty = st.number_input("Quantity", min_value=1, step=1)
+
+    price = None
+    if order_kind == "Limit":
+        price = st.number_input("Limit Price", min_value=1.0)
+
+    if st.button("Place Order"):
+        entry = {
+            "user": "YOU",
+            "qty": qty,
+            "price": price if price else st.session_state.prices[stock],
+        }
+
+        if side == "Buy":
+            st.session_state.order_book[stock]["buy"].append(entry)
+        else:
+            st.session_state.order_book[stock]["sell"].append(entry)
+
+        match_orders(stock)
+        st.success("Order placed!")
 
 st.divider()
 
-# ------------ TRADING PANEL ------------
-st.subheader("Place Trade")
+# ORDER BOOK
+st.subheader("Order Book")
+for s in st.session_state.order_book:
+    st.write(f"### {s}")
+    book = st.session_state.order_book[s]
 
-stock = st.selectbox("Select Stock", list(st.session_state.prices.keys()))
-order_type = st.radio("Order Type", ["BUY", "SELL"])
-qty = st.number_input("Quantity", min_value=1, step=1)
+    buys = [{"price": o["price"], "qty": o["qty"]} for o in book["buy"]]
+    sells = [{"price": o["price"], "qty": o["qty"]} for o in book["sell"]]
 
-current_price = st.session_state.prices[stock]
-st.info(f"Current Price: ₹{current_price}")
+    st.write("**Buy Orders**")
+    st.dataframe(pd.DataFrame(buys) if buys else pd.DataFrame())
 
-if st.button("Confirm Order"):
-    total_cost = qty * current_price
-
-    # BUY LOGIC
-    if order_type == "BUY":
-        if st.session_state.balance >= total_cost:
-            st.session_state.balance -= total_cost
-            st.session_state.portfolio[stock] = (
-                st.session_state.portfolio.get(stock, 0) + qty
-            )
-            st.success(f"Bought {qty} {stock} at ₹{current_price}")
-            st.session_state.history.append(
-                ("BUY", stock, qty, current_price)
-            )
-        else:
-            st.error("Not enough balance!")
-
-    # SELL LOGIC
-    else:
-        if st.session_state.portfolio.get(stock, 0) >= qty:
-            st.session_state.portfolio[stock] -= qty
-            st.session_state.balance += total_cost
-            st.success(f"Sold {qty} {stock} at ₹{current_price}")
-            st.session_state.history.append(
-                ("SELL", stock, qty, current_price)
-            )
-        else:
-            st.error("You don't own enough shares!")
+    st.write("**Sell Orders**")
+    st.dataframe(pd.DataFrame(sells) if sells else pd.DataFrame())
 
 st.divider()
 
-# ------------ TRADE HISTORY ------------
-st.subheader("Trade History")
-if st.session_state.history:
-    for h in st.session_state.history[::-1]:
-        st.write(f"{h[0]} — {h[1]} — {h[2]} shares @ ₹{h[3]}")
+# TRADE HISTORY
+st.subheader("Trades")
+if st.session_state.trades:
+    st.table(pd.DataFrame(st.session_state.trades))
 else:
     st.write("No trades yet.")
